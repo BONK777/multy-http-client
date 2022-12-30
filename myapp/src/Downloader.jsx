@@ -1,80 +1,83 @@
 import React, { useState, useEffect } from 'react';
 
-function Downloader({ url, threads, speedLimit }) {
-  const [supported, setSupported] = useState(null);
-  const [downloading, setDownloading] = useState(false);
-  const [downloaded, setDownloaded] = useState(0);
-  const [error, setError] = useState(null);
+const Downloader = (props) => {
+  const [url, setUrl] = useState('');
+  const [download, setDownload] = useState(null);
+  const [rangesSupported, setRangesSupported] = useState(false);
 
   useEffect(() => {
-    async function checkRangesSupport() {
-      try {
-        const response = await fetch(url, {
-          method: 'HEAD',
-        });
-        const acceptsRanges = response.headers.get('Accept-Ranges');
-        setSupported(acceptsRanges === 'bytes');
-      } catch (err) {
-        setError(err);
+    // Connect to WebSocket server
+    const ws = new WebSocket(props.wsServerUrl);
+
+    // Set up message event listener
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'download_progress') {
+        setDownload(data);
+      } else if (data.type === 'download_completed') {
+        setDownload(data);
       }
-    }
-    checkRangesSupport();
-  }, [url]);
+    };
 
-  async function startDownload() {
-    setDownloading(true);
-    setError(null);
-    try {
-      const chunkSize = Math.ceil(speedLimit / threads);
-      const promises = [];
-      for (let i = 0; i < threads; i += 1) {
-        promises.push(downloadChunk(i * chunkSize, (i + 1) * chunkSize - 1));
+    // Check if ranges are supported
+    ws.onopen = () => {
+      const req = new XMLHttpRequest();
+      req.open('HEAD', url);
+      req.onload = () => {
+        setRangesSupported(req.getResponseHeader('Accept-Ranges') === 'bytes');
+      };
+      req.send();
+    };
+
+    // Disconnect from WebSocket server when component unmounts
+    return () => {
+      ws.close();
+    };
+  }, [url, props.wsServerUrl]);
+
+  const startDownload = () => {
+    // Connect to WebSocket server
+    const ws = new WebSocket(props.wsServerUrl);
+
+    // Set up message event listener
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'download_progress') {
+        setDownload(data);
+      } else if (data.type === 'download_completed') {
+        setDownload(data);
       }
-      await Promise.all(promises);
-    } catch (err) {
-      setError(err);
-    }
-    setDownloading(false);
-  }
+    };
 
-  async function downloadChunk(start, end) {
-    try {
-      const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-      const response = await fetch(proxyUrl + url, {
-        headers: {
-          Range: `bytes=${start}-${end}`,
-        },
-      });
-      const chunk = await response.arrayBuffer();
-      setDownloaded(downloaded + chunk.byteLength);
-    } catch (err) {
-      setError(err);
-    }
-  }
+    // Send message to start download when URL is entered
+    ws.onopen = () => {
+      ws.send(
+        JSON.stringify({
+          type: 'start_download',
+          url,
+        }),
+      );
+    };
+  };
 
-  if (error) {
-    return <p>An error occurred: {error.message}</p>;
-  }
-  if (supported === null) {
-    return <p>Checking if ranges are supported...</p>;
-  }
-  if (supported === false) {
-    return <p>Ranges are not supported for this URL</p>;
-  }
   return (
     <div>
-      <p>Ranges are supported</p>
-      {downloading ? (
+      <input value={url} onChange={(e) => setUrl(e.target.value)} />
+      <button onClick={startDownload}>Start Download</button>
+      {download && (
         <div>
-          <p>Downloading...</p>
-          <p>{downloaded} bytes downloaded</p>
-          <progress value={downloaded} max={100} />
+          <p>Status: {download.status}</p>
+          <p>Size: {download.size}</p>
+          {rangesSupported && (
+            <p>Threads: {download.threads}</p>
+          )}
+          {download.status === 'completed' && (
+            <a href={download.fileUrl}>Download completed</a>
+          )}
         </div>
-      ) : (
-        <button onClick={startDownload}>Start download</button>
       )}
     </div>
   );
-}
+};
 
 export default Downloader;

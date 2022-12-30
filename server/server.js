@@ -1,64 +1,88 @@
 const WebSocket = require('ws');
+const fs = require('fs');
+const https = require('https');
 
 const wss = new WebSocket.Server({ port: 8080 });
 
-const downloads = {};
+const downloads = new Map();
+
+class Download {
+  constructor(url) {
+    this.url = url;
+    this.status = 'pending';
+    this.size = 0;
+    this.threads = 0;
+    this.progress = 0;
+    this.filePath = null;
+  }
+}
 
 wss.on('connection', (ws) => {
-  console.log('WebSocket connection opened');
+  console.log('New WebSocket connection');
 
   ws.on('message', (message) => {
+    console.log(`Received message: ${message}`);
+
     const data = JSON.parse(message);
-    switch (data.type) {
-      case 'add':
-        if (downloads[data.url]) {
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              message: 'URL is already being downloaded',
-            }),
-          );
-        } else {
-          downloads[data.url] = {
-            url: data.url,
-            size: 0,
-            threads: 0,
-            progress: 0,
-            file: null,
-          };
-          ws.send(
-            JSON.stringify({
-              type: 'added',
-              url: data.url,
-            }),
-          );
-          // Start downloading the content here
-        }
-        break;
-      case 'get':
-        if (downloads[data.url]) {
-          ws.send(
-            JSON.stringify({
-              type: 'status',
-              url: data.url,
-              status: downloads[data.url],
-            }),
-          );
-        } else {
-          ws.send(
-            JSON.stringify({
-              type: 'error',
-              message: 'URL is not being downloaded',
-            }),
-          );
-        }
-        break;
-      default:
-        break;
+    if (data.type === 'start_download') {
+      startDownload(data.url);
     }
   });
-
-  ws.on('close', () => {
-    console.log('WebSocket connection closed');
-  });
 });
+
+function startDownload(url) {
+  if (downloads.has(url)) {
+    return;
+  }
+
+  const download = new Download(url);
+
+  const fileName = url.split('/').pop();
+  download.filePath = `/downloads/${fileName}`;
+  downloads.set(url, download);
+
+  // Start downloading the file
+  const file = fs.createWriteStream(download.filePath);
+  https.get(url, (response) => {
+    download.status = 'downloading';
+    download.size = parseInt(response.headers['content-length'], 10);
+    download.threads = 1;
+    let downloaded = 0;
+    response.pipe(file);
+
+    response.on('data', (chunk) => {
+      downloaded += chunk.length;
+      download.progress = downloaded / download.size;
+
+      // Send update to connected clients
+      wss.clients.forEach((client) => {
+        client.send(
+          JSON.stringify({
+            type: 'download_progress',
+            url: download.url,
+            size: download.size,
+            threads: download.threads,
+            progress: download.progress,
+            filePath: download.filePath,
+          }),
+        );
+      });
+    });
+
+    file.on('finish', () => {
+      file.close();
+      download.status = 'completed';
+      wss.clients.forEach((client) => {
+        client.send(
+          JSON.stringify({
+            type: 'download_completed',
+            url: download.url,
+            filePath: download.filePath,
+          }),
+        );
+      });
+    });
+
+  })
+
+}
