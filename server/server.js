@@ -41,7 +41,6 @@ function startDownload(url) {
   download.filePath = `/downloads/${fileName}`;
   downloads.set(url, download);
 
-  // Start downloading the file
   const file = fs.createWriteStream(download.filePath);
   https.get(url, (response) => {
     download.status = 'downloading';
@@ -54,7 +53,6 @@ function startDownload(url) {
       downloaded += chunk.length;
       download.progress = downloaded / download.size;
 
-      // Send update to connected clients
       wss.clients.forEach((client) => {
         client.send(
           JSON.stringify({

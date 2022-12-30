@@ -6,10 +6,8 @@ const Downloader = (props) => {
   const [rangesSupported, setRangesSupported] = useState(false);
 
   useEffect(() => {
-    // Connect to WebSocket server
     const ws = new WebSocket(props.wsServerUrl);
 
-    // Set up message event listener
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'download_progress') {
@@ -19,7 +17,6 @@ const Downloader = (props) => {
       }
     };
 
-    // Check if ranges are supported
     ws.onopen = () => {
       const req = new XMLHttpRequest();
       req.open('HEAD', url);
@@ -29,17 +26,14 @@ const Downloader = (props) => {
       req.send();
     };
 
-    // Disconnect from WebSocket server when component unmounts
     return () => {
       ws.close();
     };
   }, [url, props.wsServerUrl]);
 
   const startDownload = () => {
-    // Connect to WebSocket server
     const ws = new WebSocket(props.wsServerUrl);
 
-    // Set up message event listener
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
       if (data.type === 'download_progress') {
@@ -49,7 +43,6 @@ const Downloader = (props) => {
       }
     };
 
-    // Send message to start download when URL is entered
     ws.onopen = () => {
       ws.send(
         JSON.stringify({
